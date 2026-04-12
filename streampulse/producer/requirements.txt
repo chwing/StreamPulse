@@ -1,0 +1,5 @@
+confluent-kafka[avro]==2.3.0
+fastavro==1.9.4
+faker==24.2.0
+python-dotenv==1.0.1
+requests==2.31.0

@@ -1,0 +1,379 @@
+networks:
+  streampulse-net:
+    driver: bridge
+
+volumes:
+  minio-data:
+  kafka-data:
+  zookeeper-data:
+  zookeeper-logs:
+  grafana-data:
+  prometheus-data:
+
+services:
+
+  # ─────────────────────────────────────────
+  # 1. ZOOKEEPER
+  # Kafka needs Zookeeper for cluster coordination,
+  # leader election, and storing broker metadata.
+  # ─────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: streampulse-zookeeper
+    networks:
+      - streampulse-net
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # 2. KAFKA BROKER
+  # The message broker — receives, stores, and
+  # serves all your event streams.
+  # ─────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: streampulse-kafka
+    networks:
+      - streampulse-net
+    ports:
+      - "9092:9092"         # for host machine access
+      - "29092:29092"       # for inter-container access
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID}
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners: one for your host machine, one for containers
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"   # we create topics explicitly
+      KAFKA_LOG_RETENTION_HOURS: 168             # keep messages 7 days
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_JMX_PORT: 9999
+      KAFKA_JMX_HOSTNAME: kafka
+      KAFKA_JMX_OPTS: >
+        -Dcom.sun.management.jmxremote=true
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Dcom.sun.management.jmxremote.rmi.port=9999
+        -Djava.rmi.server.hostname=kafka
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # 3. SCHEMA REGISTRY
+  # Stores and enforces Avro schemas.
+  # Producers and consumers fetch schemas here
+  # by ID instead of embedding them in messages.
+  # ─────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: streampulse-schema-registry
+    networks:
+      - streampulse-net
+    ports:
+      - "${SCHEMA_REGISTRY_PORT}:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # 4. MINIO
+  # S3-compatible object storage running locally.
+  # This is where Delta Lake will store Parquet files.
+  # ─────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: streampulse-minio
+    networks:
+      - streampulse-net
+    ports:
+      - "${MINIO_PORT}:9000"          # S3 API
+      - "${MINIO_CONSOLE_PORT}:9001"  # web console
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # 5. MINIO INIT
+  # One-shot container: creates the S3 buckets
+  # needed by Delta Lake on first startup.
+  # ─────────────────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: streampulse-minio-init
+    networks:
+      - streampulse-net
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      mc mb --ignore-existing local/streampulse-bronze;
+      mc mb --ignore-existing local/streampulse-silver;
+      mc mb --ignore-existing local/streampulse-gold;
+      echo 'Buckets created successfully';
+      "
+    restart: "no"   # runs once and exits — that's intentional
+
+  # ─────────────────────────────────────────
+  # 6. KAFKA UI
+  # A browser UI to inspect topic ages,
+  # schemas, consumer groups, and lag.
+  # Essential for debugging during development.
+  # ─────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: streampulse-kafka-ui
+    networks:
+      - streampulse-net
+    ports:
+      - "${KAFKA_UI_PORT}:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: streampulse
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+    # ─────────────────────────────────────────
+    # SPARK MASTER
+    # Coordinates the cluster — assigns tasks
+    # to workers, tracks job progress.
+# ─────────────────────────────────────────
+  # SPARK MASTER
+  # ─────────────────────────────────────────
+  spark-master:
+    image: apache/spark:3.5.0
+    container_name: streampulse-spark-master
+    networks:
+      - streampulse-net
+    ports:
+      - "8090:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # SPARK WORKER
+  # ─────────────────────────────────────────
+  spark-worker:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: streampulse-spark-worker
+    user: root
+    networks:
+      - streampulse-net
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - PYTHONPATH=/app
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+    volumes:
+      - ./spark:/app
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+
+  # ─────────────────────────────────────────
+  # SPARK STREAMING JOB
+  # Your Python application — submits itself
+  # to the Spark master on container startup.
+  # ─────────────────────────────────────────
+  spark-streaming:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: streampulse-spark-streaming
+    user: root
+    networks:
+      - streampulse-net
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - SPARK_MASTER=spark://spark-master:7077
+      - CHECKPOINT_BASE=s3a://streampulse-bronze/checkpoints
+    volumes:
+      - ./spark:/app
+    restart: on-failure:3
+# ─────────────────────────────────────────
+  # TRINO
+  # Distributed SQL engine. Reads Delta Lake
+  # Parquet files directly from MinIO via S3A.
+  # Grafana connects to it over JDBC port 8080.
+  # ─────────────────────────────────────────
+  trino:
+    image: trinodb/trino:435
+    container_name: streampulse-trino
+    networks:
+      - streampulse-net
+    ports:
+      - "8085:8080"     # Trino Web UI + JDBC endpoint
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog
+      - ./trino/config/config.properties:/etc/trino/config.properties
+      - ./trino/config/jvm.config:/etc/trino/jvm.config
+      - ./trino/config/node.properties:/etc/trino/node.properties
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # GRAFANA
+  # Dashboard server. Reads from Trino via
+  # the Trino JDBC plugin. Auto-provisioned
+  # with datasource and dashboard on startup.
+  # ─────────────────────────────────────────
+  grafana:
+    build:
+      context: ./grafana
+      dockerfile: Dockerfile
+    container_name: streampulse-grafana
+    networks:
+      - streampulse-net
+    ports:
+      - "3000:3000"
+    depends_on:
+      trino:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: streampulse
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/streampulse.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+# ─────────────────────────────────────────
+  # JMX EXPORTER
+  # Runs as a Java agent inside the Kafka
+  # container and exposes JMX metrics as
+  # an HTTP endpoint Prometheus can scrape.
+  # ─────────────────────────────────────────
+  kafka-jmx-exporter:
+    image: bitnamilegacy/jmx-exporter:0.20.0
+    container_name: streampulse-jmx-exporter
+    networks:
+      - streampulse-net
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./monitoring/jmx-exporter/kafka-jmx-config.yml:/opt/jmx-exporter/config.yml
+    command:
+      - "5556"
+      - /opt/jmx-exporter/config.yml
+      - service:jmx:rmi:///jndi/rmi://kafka:9999/jmxrmi
+    environment:
+      JVM_OPTS: >
+        -Dcom.sun.jndi.rmiURLParsing=legacy
+        -Djava.rmi.server.hostname=kafka
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────
+  # PROMETHEUS
+  # Pulls metrics from JMX Exporter (Kafka)
+  # and from Spark's built-in metrics endpoint.
+  # Stores time-series for Grafana to query.
+  # ─────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: streampulse-prometheus
+    networks:
+      - streampulse-net
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+    depends_on:
+      - kafka-jmx-exporter
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+

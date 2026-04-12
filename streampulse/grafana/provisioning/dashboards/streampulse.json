@@ -1,0 +1,528 @@
+{
+  "id": null,
+  "uid": "streampulse-main",
+  "title": "StreamPulse — Real-Time E-Commerce",
+  "description": "Live analytics dashboard for the StreamPulse streaming pipeline. Powered by Trino on Delta Lake Gold tables + Prometheus metrics.",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "tags": ["streampulse", "kafka", "spark", "delta-lake", "real-time"],
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+
+  "panels": [
+
+    {
+      "id": 1,
+      "title": "Revenue per 5 minutes",
+      "description": "Total order revenue aggregated into 5-minute tumbling windows. Source: gold.revenue_by_5min",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 16, "h": 8 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT window_start AS time, total_revenue AS \"Revenue ($)\" FROM delta.default.revenue_by_5min WHERE window_start >= now() - INTERVAL '1' HOUR ORDER BY window_start ASC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+      }
+    },
+
+    {
+      "id": 2,
+      "title": "Orders (last 5 min)",
+      "description": "Total number of orders completed in the most recent 5-minute window.",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT SUM(order_count) AS \"Orders\" FROM delta.default.revenue_by_5min WHERE window_start >= now() - INTERVAL '5' MINUTE"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red",    "value": 100 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
+    },
+
+    {
+      "id": 3,
+      "title": "Avg order value (last 30 min)",
+      "description": "Rolling average order amount over the last 30 minutes.",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(AVG(avg_order), 2) AS \"Avg order ($)\" FROM delta.default.revenue_by_5min WHERE window_start >= now() - INTERVAL '30' MINUTE"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
+    },
+
+    {
+      "id": 4,
+      "title": "Total revenue (last hour)",
+      "description": "Cumulative revenue over the past 60 minutes.",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 4, "w": 4, "h": 4 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(SUM(total_revenue), 2) AS \"Total revenue ($)\" FROM delta.default.revenue_by_5min WHERE window_start >= now() - INTERVAL '1' HOUR"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
+    },
+
+    {
+      "id": 5,
+      "title": "Total orders (last hour)",
+      "description": "Cumulative order count over the past 60 minutes.",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 4, "w": 4, "h": 4 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT SUM(order_count) AS \"Total orders\" FROM delta.default.revenue_by_5min WHERE window_start >= now() - INTERVAL '1' HOUR"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
+    },
+
+    {
+      "id": 6,
+      "title": "Conversion funnel (last 30 min)",
+      "description": "Drop-off from page views to add-to-cart to purchases. Source: gold.conversion_funnel",
+      "type": "bargauge",
+      "gridPos": { "x": 0, "y": 8, "w": 10, "h": 8 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT 'Page views' AS stage, CAST(SUM(page_views) AS DOUBLE) AS value FROM delta.default.conversion_funnel WHERE window_start >= now() - INTERVAL '30' MINUTE UNION ALL SELECT 'Add to cart', CAST(SUM(add_to_carts) AS DOUBLE) FROM delta.default.conversion_funnel WHERE window_start >= now() - INTERVAL '30' MINUTE UNION ALL SELECT 'Purchases', CAST(SUM(purchases) AS DOUBLE) FROM delta.default.conversion_funnel WHERE window_start >= now() - INTERVAL '30' MINUTE ORDER BY value DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue",   "value": null },
+              { "color": "green",  "value": 100 },
+              { "color": "yellow", "value": 500 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^value$/", "values": true },
+        "showUnfilled": true,
+        "namePlacement": "auto",
+        "valueMode": "color",
+        "minVizWidth": 0,
+        "minVizHeight": 10
+      }
+    },
+
+    {
+      "id": 7,
+      "title": "Cart rate & conversion rate (last 30 min)",
+      "description": "cart_rate = add_to_cart / page_views. conv_rate = purchases / page_views.",
+      "type": "stat",
+      "gridPos": { "x": 10, "y": 8, "w": 5, "h": 8 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(AVG(cart_rate), 2) AS \"Cart rate (%)\", ROUND(AVG(conv_rate), 2) AS \"Conv rate (%)\" FROM delta.default.conversion_funnel WHERE window_start >= now() - INTERVAL '30' MINUTE"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 2 },
+              { "color": "green",  "value": 4 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "vertical",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
+    },
+
+    {
+      "id": 8,
+      "title": "Active unique users (last 10 min)",
+      "description": "Count of distinct user_ids that sent at least one event in the last 10 minutes. Source: gold.active_users",
+      "type": "gauge",
+      "gridPos": { "x": 15, "y": 8, "w": 5, "h": 8 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT SUM(unique_users) AS \"Active users\" FROM delta.default.active_users WHERE window_start >= now() - INTERVAL '10' MINUTE"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "max": 500,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 300 },
+              { "color": "red",    "value": 450 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
+    },
+
+    {
+      "id": 9,
+      "title": "Top sessions by revenue (last 30 min)",
+      "description": "Highest-revenue sessions in the current window. Source: gold.top_products",
+      "type": "table",
+      "gridPos": { "x": 20, "y": 8, "w": 4, "h": 8 },
+      "datasource": { "type": "trino-datasource", "uid": "trino" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT product_id AS \"Session\", ROUND(revenue, 2) AS \"Revenue ($)\", order_count AS \"Orders\" FROM delta.default.top_products WHERE window_start >= now() - INTERVAL '30' MINUTE ORDER BY revenue DESC LIMIT 8"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Revenue ($)" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": { "show": false }
+      },
+      "transformations": []
+    },
+
+    {
+      "id": 10,
+      "title": "Kafka consumer lag — Spark streaming",
+      "description": "Messages waiting to be consumed per topic. Growing lag means Spark cannot keep up with the producer. Alert fires at 10,000. Source: Prometheus / JMX Exporter",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 16, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (topic) (label_replace({__name__=~\"kafka_cluster_type_partition_name_laststableoffsetlag_topic_.+_partition_.+_value\"}, \"topic\", \"$1\", \"__name__\", \".*_topic_(.+)_partition_.*\"))",
+          "legendFormat": "{{topic}}",
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 5000 },
+              { "color": "red",    "value": 10000 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+      },
+      "alert": {
+        "name": "High consumer lag",
+        "message": "Spark consumer lag exceeded 10,000 messages — pipeline falling behind producer",
+        "conditions": [
+          {
+            "type": "query",
+            "query": { "params": ["A", "2m", "now"] },
+            "reducer": { "type": "avg", "params": [] },
+            "evaluator": { "type": "gt", "params": [10000] }
+          }
+        ],
+        "executionErrorState": "alerting",
+        "noDataState": "no_data",
+        "frequency": "1m",
+        "handler": 1,
+        "for": "2m"
+      }
+    },
+
+    {
+      "id": 11,
+      "title": "Kafka messages in/sec",
+      "description": "Producer throughput per topic — 1-minute rolling rate. Source: Prometheus / JMX Exporter",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 16, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (topic) (label_replace({__name__=~\"kafka_server_type_brokertopicmetrics_name_messagesinpersec_topic_.+_oneminuterate\"}, \"topic\", \"$1\", \"__name__\", \".*_topic_(.+)_oneminuterate\"))",
+          "legendFormat": "{{topic}}",
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "mps",
+          "decimals": 1,
+          "min": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+      }
+    },
+
+    {
+      "id": 12,
+      "title": "Kafka bytes in/sec",
+      "description": "Network ingress to the Kafka broker per topic. Source: Prometheus / JMX Exporter",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (topic) (label_replace({__name__=~\"kafka_server_type_brokertopicmetrics_name_bytesinpersec_topic_.+_oneminuterate\"}, \"topic\", \"$1\", \"__name__\", \".*_topic_(.+)_oneminuterate\"))",
+          "legendFormat": "in — {{topic}}",
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "decimals": 1,
+          "min": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 1.5, "fillOpacity": 6 }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+      }
+    },
+
+    {
+      "id": 13,
+      "title": "Kafka request latency (ms)",
+      "description": "Mean broker request latency by request type — Produce and Fetch are the most relevant. Source: Prometheus / JMX Exporter",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace({__name__=~\"kafka_network_type_requestmetrics_name_totaltimems_request_(produce|fetchconsumer)_mean\"}, \"request_type\", \"$1\", \"__name__\", \".*_request_(.+)_mean\")",
+          "legendFormat": "{{request_type}}",
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1,
+          "min": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 1.5, "fillOpacity": 6 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red",    "value": 200 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+      }
+    }
+
+  ],
+
+  "schemaVersion": 38,
+  "version": 10,
+  "links": []
+}

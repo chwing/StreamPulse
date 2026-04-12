@@ -1,0 +1,24 @@
+version: "3.9"
+
+# docker-compose.override.yml is auto-merged by Docker Compose.
+# Run normally:      docker compose up -d
+# Run stress test:   docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+#
+# The override file changes:
+#   1. Producer throughput → 10,000 events/sec
+#   2. Spark trigger interval → 10 seconds (faster processing)
+#   3. Kafka retention → 2 hours (avoid disk fill during test)
+
+services:
+
+  spark-streaming:
+    environment:
+      TRIGGER_INTERVAL: "10 seconds"
+      # Process micro-batches every 10s instead of 30s
+      # so Spark can absorb the higher producer rate.
+
+  kafka:
+    environment:
+      KAFKA_LOG_RETENTION_HOURS: 2
+      # During stress tests you'll produce millions of events.
+      # 2-hour retention prevents filling your disk.

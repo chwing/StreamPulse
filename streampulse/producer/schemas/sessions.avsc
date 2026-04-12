@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "SessionEvent",
+  "namespace": "com.streampulse",
+  "fields": [
+    {"name": "session_id",       "type": "string"},
+    {"name": "user_id",          "type": "string"},
+    {"name": "start_timestamp",  "type": "long",
+     "logicalType": "timestamp-millis"},
+    {"name": "end_timestamp",    "type": ["null", "long"],
+     "logicalType": "timestamp-millis", "default": null},
+    {"name": "pages_visited",    "type": "int"},
+    {"name": "device_type",      "type": "string"},
+    {"name": "country",          "type": "string"},
+    {"name": "converted",        "type": "boolean", "default": false}
+  ]
+}

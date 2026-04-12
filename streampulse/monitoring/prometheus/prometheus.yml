@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s        # pull metrics every 15 seconds
+  evaluation_interval: 15s    # evaluate alerting rules every 15s
+
+scrape_configs:
+
+  # ── Kafka metrics via JMX Exporter ─────────────────────────────
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-jmx-exporter:5556"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: kafka-broker
+
+  # ── Prometheus self-monitoring ──────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Spark master endpoint returns JSON/HTML, not Prometheus exposition format.
+  # Keep this config limited to scrape targets that expose Prometheus metrics.

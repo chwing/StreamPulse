@@ -1,0 +1,51 @@
+startDelaySeconds: 0
+hostPort: kafka:9999
+username:
+password:
+ssl: false
+
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+
+rules:
+  # ── Consumer group lag ────────────────────────────────────────────
+  # This is the most important metric for StreamPulse.
+  # Lag = latest offset - committed offset per partition.
+  # Growing lag = Spark can't keep up with the producer.
+  - pattern: "kafka.server<type=FetcherLagMetrics,name=ConsumerLag,clientId=(.+),topic=(.+),partition=(.+)><>Value"
+    name: kafka_consumer_lag
+    labels:
+      client_id: "$1"
+      topic: "$2"
+      partition: "$3"
+
+  # ── Messages in per second (producer throughput) ──────────────────
+  - pattern: "kafka.server<type=BrokerTopicMetrics,name=MessagesInPerSec,topic=(.+)><>OneMinuteRate"
+    name: kafka_messages_in_per_sec
+    labels:
+      topic: "$1"
+
+  # ── Bytes in/out per second ───────────────────────────────────────
+  - pattern: "kafka.server<type=BrokerTopicMetrics,name=BytesInPerSec,topic=(.+)><>OneMinuteRate"
+    name: kafka_bytes_in_per_sec
+    labels:
+      topic: "$1"
+
+  - pattern: "kafka.server<type=BrokerTopicMetrics,name=BytesOutPerSec,topic=(.+)><>OneMinuteRate"
+    name: kafka_bytes_out_per_sec
+    labels:
+      topic: "$1"
+
+  # ── Request latency ───────────────────────────────────────────────
+  - pattern: "kafka.network<type=RequestMetrics,name=TotalTimeMs,request=(.+)><>Mean"
+    name: kafka_request_latency_ms
+    labels:
+      request_type: "$1"
+
+  # ── Under-replicated partitions (should always be 0) ─────────────
+  - pattern: "kafka.server<type=ReplicaManager,name=UnderReplicatedPartitions><>Value"
+    name: kafka_under_replicated_partitions
+
+  # Fallback: expose any remaining Kafka JMX beans so metrics are never empty
+  - pattern: "kafka\\.(.+)<>(Count|Value|OneMinuteRate|Mean|50thPercentile|75thPercentile|95thPercentile|99thPercentile)"
+    name: "kafka_$1_$2"
