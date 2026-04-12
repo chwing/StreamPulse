@@ -1,3 +1,4 @@
-.github/
-.venv/
-plugins.txt
+*
+!README.md
+!streampulse/
+!streampulse/**
