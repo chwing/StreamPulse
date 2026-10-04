@@ -173,8 +173,8 @@ def next_events() -> list[tuple[str, str, dict]]:
     if random.random() < 0.30:
         session["cart"].append(product)
 
-        # 20% chance: purchase if cart is non-empty
-        if session["cart"] and random.random() < 0.20:
+        # 10% chance: purchase if cart is non-empty
+        if session["cart"] and random.random() < 0.10:
             order = generate_order_event(user, session)
             if order:
                 events.append((config.TOPIC_ORDERS, user["user_id"], order))
